@@ -1,0 +1,320 @@
+﻿@page "/blackjack"
+
+@using BlazorGames.Models.Blackjack;
+@using BlazorGames.Models.Blackjack.Enums;
+@using BlazorGames.Pages.Partials;
+
+<PageTitle Title="Blackjack" />
+
+@code {
+    Dealer dealer = new Dealer(); //Creating a new Dealer also creates a new, shuffled CardDeck
+    Player player = new Player();
+
+    GameState state = GameState.NotStarted;
+
+    public async Task InitializeHand()
+    {
+        if (dealer.Deck.Count < 13)
+        {
+            state = GameState.Shuffling;
+            dealer.Deck = new CardDeck();
+            await Delay(1000);
+        }
+
+        state = GameState.Betting;
+    }
+
+    public async Task Bet(decimal amount)
+    {
+        if (player.Funds >= amount)
+        {
+            player.Bet += amount;
+            await Deal();
+        }
+    }
+
+    public async Task Deal()
+    {
+        state = GameState.Dealing;
+        //Deal a card to each player. The dealer's card is not visible.
+        await dealer.DealToPlayer(player);
+        StateHasChanged();
+
+        var dealerCard = dealer.Deal();
+        dealerCard.IsVisible = false;
+        await dealer.AddCard(dealerCard);
+        StateHasChanged();
+
+        //Deal another card to each player and the dealer; these will all be visible.
+        await dealer.DealToPlayer(player);
+        StateHasChanged();
+
+        await dealer.DealToSelf();
+        StateHasChanged();
+
+        state = GameState.InProgress;
+
+        //If the player has a natural blackjack, the hand is over.
+        if (player.HasNaturalBlackjack)
+        {
+            EndHand();
+        }
+    }
+
+    public async Task NewHand()
+    {
+        //Payout the player's bets
+        player.Collect();
+
+        //Clear the hands
+        player.ClearHand();
+        dealer.ClearHand();
+
+        //Reset the game area
+        state = GameState.NotStarted;
+
+        //Easter egg!
+        if (player.Funds > 1000)
+        {
+            state = GameState.EscortedOut;
+            return;
+        }
+
+        //Begin a new hand!
+        await InitializeHand();
+    }
+
+    public async Task Delay(int millis)
+    {
+        await Task.Delay(millis);
+        StateHasChanged();
+    }
+
+    public async Task DealerTurn()
+    {
+        if (dealer.Score < 17)
+        {
+            await dealer.DealToSelf();
+            StateHasChanged();
+            await DealerTurn();
+        }
+    }
+
+    public async Task Hit()
+    {
+        await dealer.DealToPlayer(player);
+        if (player.IsBusted)
+        {
+            EndHand();
+        }
+    }
+
+    public async Task Stand()
+    {
+        player.HasStood = true;
+        dealer.Reveal();
+
+        await DealerTurn();
+
+        EndHand();
+    }
+
+    public void EndHand()
+    {
+        state = GameState.Payout;
+        if (player.HasNaturalBlackjack && dealer.Score != 21)
+        {
+            //Player gets their bet back, plus 1.5 * the bet
+            player.Change += player.Bet * 1.5M;
+        }
+        else if (!player.IsBusted && dealer.IsBusted)
+        {
+            //If the player is not busted but the dealer is, the player gets the amount of their bet back, plus the bet again.
+            player.Change += player.Bet;
+        }
+        else if (!dealer.IsBusted && !player.IsBusted && player.Score > dealer.Score)
+        {
+            //This is a "normal" win condition; the player has more than the dealer and neither are busted.
+            player.Change += player.Bet;
+        }
+        else if (!dealer.IsBusted && !player.IsBusted && player.Score == dealer.Score)
+        {
+            //If there's a push, no money changes hands
+        }
+        else //In all other situations, the player loses their bet.
+        {
+            player.Change += player.Bet * -1;
+        }
+
+        //No matter what, the player's bet gets reset
+        player.Bet = 0;
+        player.HasStood = false;
+    }
+
+    public async Task DoubleDown()
+    {
+        player.HasStood = true;
+        //The player may only do this if their shown score is 9, 10, or 11.
+        //If this happens, the player doubles their bet.
+        player.Bet *= 2;
+
+        await Delay(300);
+
+        //The player then gets one additional card
+        await player.AddCard(dealer.Deal());
+
+        //At this point, the player is forced to stand.
+        await Stand();
+    }
+
+    //If the dealer has an Ace showing, the player may choose to make an insurance bet.
+    //If the player chooses to make an insurance bet, they place a separate bet of 1/2 the original bet
+    //The dealer then looks at the hidden card.
+    //If the hidden card is a ten card, the dealer pays back the player at 2-to-1.
+    //Otherwise, the player loses the insurance bet, and play continues as normal
+    public void Insurance()
+    {
+        state = GameState.Insurance;
+
+        if (dealer.HasAceShowing)
+        {
+            //Insurance bet is half the original bet
+            player.InsuranceBet = player.Bet / 2;
+
+            if (dealer.Score == 21) //If the dealer has Blackjack
+            {
+                //Reveal the hidden card
+                dealer.Reveal();
+
+                //Pay the player twice the insurance bet
+                player.Change += player.InsuranceBet * 2;
+
+                //Go straight to the Payout state
+                state = GameState.Payout;
+                StateHasChanged();
+                EndHand();
+            }
+            else
+            {
+                //Player loses their insurance bet
+                player.Change -= player.InsuranceBet;
+            }
+        }
+
+        //Unless the hand is over, play continues normally.
+        state = GameState.InProgress;
+    }
+}
+
+<div class="row">
+    <div class="col-3">
+        <div>
+            @{
+                int cardCount = dealer.Deck.Count + 1;
+            }
+            @while (cardCount > 0)
+            {
+                <div class="blackjack-drawdeck">
+                    <img src="images/common/cardBack.png" />
+                </div>
+                cardCount -= 13;
+            }
+        </div>
+    </div>
+    <div class="col-3">
+        <BlackjackHand Cards="dealer.Cards" />
+    </div>
+    <div class="col-3">
+        <BlackjackScore State="state" Player="dealer" />
+    </div>
+</div>
+<div class="row">
+    <div class="col-3">
+        <BlackjackFunds Funds="player.Funds" Change="player.Change" />
+    </div>
+    <div class="col-3">
+        @if (state == GameState.Betting)
+        {
+            @if (player.Funds < 10)
+            {
+                <span class="display-3 text-danger">Out of money!</span>
+            }
+            @if (player.Funds >= 10)
+            {
+                <button class="btn btn-primary" @onclick="(() => Bet(10))">Bet $10</button>
+            }
+            @if (player.Funds >= 20)
+            {
+                <button class="btn btn-primary" @onclick="(() => Bet(20))">Bet $20</button>
+            }
+            @if (player.Funds >= 50)
+            {
+                <button class="btn btn-primary" @onclick="(() => Bet(50))">Bet $50</button>
+            }
+        }
+
+        @if (state == GameState.Payout)
+        {
+            <BlackjackHandResult Player="player" Dealer="dealer" />
+        }
+        @if (state == GameState.Dealing || state == GameState.Shuffling
+        || state == GameState.InProgress || state == GameState.EscortedOut)
+        {
+            <BlackjackMessage State="state" Bet="player.Bet" />
+        }
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-3">
+        @if (state == GameState.NotStarted || state == GameState.EscortedOut || player.Funds < 10)
+        {
+            <button class="btn btn-secondary" @onclick="(() => InitializeHand())">Start Game</button>
+        }
+        @if (!player.IsBusted && state == GameState.InProgress && !player.HasStood)
+        {
+            <button class="btn btn-primary" @onclick="(() => Stand())">Stand</button>
+            <button class="btn btn-primary" @onclick="(() => Hit())">Hit</button>
+            @if (player.Score >= 9
+              && player.Score <= 11
+              && player.Cards.Count == 2
+              && player.Funds >= player.Bet * 2)
+            {
+                <br />
+                <button class="btn btn-warning" @onclick="(() => DoubleDown())">Double Down</button>
+            }
+            @if (dealer.HasAceShowing && !player.HasInsurance)
+            {
+                <br />
+                <button class="btn btn-warning" @onclick="(() => Insurance())">Insurance ($@(player.Bet / 2))</button>
+            }
+        }
+        @if (state == GameState.Payout)
+        {
+            <button class="btn btn-secondary" @onclick="(() => NewHand())">Keep Going!</button>
+        }
+    </div>
+    <div class="col-3">
+        <BlackjackHand Cards="player.Cards" />
+    </div>
+    <div class="col-3">
+        <BlackjackScore State="state" Player="player" />
+    </div>
+</div>
+
+<BlackjackRules />
+
+<hr />
+
+<h2>How To Make Blackjack in Blazor WebAssembly</h2>
+
+<p>
+    Check out the blog posts below!
+</p>
+
+<ul>
+    <li><a href="https://exceptionnotfound.net/blackjack-in-blazor-part-1-rules-and-modeling-the-game/" target="_blank">Part 1: Rules and Modeling the Game</a></li>
+    <li><a href="https://exceptionnotfound.net/blackjack-in-blazor-part-2-the-csharp-classes/" target="_blank">Part 2: The C# Classes</a></li>
+    <li><a href="https://exceptionnotfound.net/blackjack-in-blazor-part-3-game-state-and-blazor-components/" target="_blank">Part 3: Game State and Blazor Components</a></li>
+    <li><a href="https://exceptionnotfound.net/blackjack-in-blazor-part-4-putting-it-all-together/" target="_blank">Part 4: Putting it All Togeteher</a></li>
+</ul>

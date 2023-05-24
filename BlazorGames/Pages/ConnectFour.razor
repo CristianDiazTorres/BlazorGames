@@ -1,0 +1,49 @@
+﻿@page "/connectfour"
+@using BlazorGames.Models.ConnectFour;
+@using BlazorGames.Models.ConnectFour.Enums;
+@using BlazorGames.Pages.Partials; 
+
+@code {
+    GameBoard board = new GameBoard();
+}
+
+<PageTitle Title="ConnectFour"/>
+
+@if (board.WinningPlay == null)
+{
+    <h3>@board.CurrentTurn's Turn!</h3>
+
+}
+else
+{
+    <h3>@board.WinningPlay.WinningColor Wins! <button class="btn btn-success" @onclick="@(() => board.Reset())">Reset</button></h3>
+}
+
+<div class="connectfour-board">
+    @for (int i = 0; i < 7; i++)
+    {
+        <div class="connectfour-column">
+            @for (int j = 0; j < 6; j++)
+            {
+                int x = i;
+                int y = j;
+                var color = board.Board[i, j].Color;
+                if (color == PieceColor.Blank)
+                {
+                    <div class="connectfour-gamepiece
+                         connectfour-blank" @onclick="@(() => board.PieceClicked(x,y))"></div>
+                }
+                else
+                {
+                    <div class="connectfour-gamepiece
+                         connectfour-@color.ToString().ToLower()"
+                         style="@(board.IsGamePieceAWinningPiece(i, j)? "opacity: 0.6" : "")"></div>
+                }
+            }
+        </div>
+    }
+</div>
+
+<hr />
+
+<ConnectFourHowToMake/>

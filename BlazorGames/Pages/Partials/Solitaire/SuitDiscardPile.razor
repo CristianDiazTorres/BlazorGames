@@ -1,0 +1,67 @@
+﻿@using BlazorGames.Models.Solitaire;
+@using BlazorGames.Models.Common;
+
+@code {
+    [Parameter]
+    public SuitPile SuitPile { get; set; }
+
+    [Parameter]
+    public Card DraggedCard { get; set; }
+
+    [Parameter]
+    public EventCallback DragStartEvent { get; set; }
+
+    [Parameter]
+    public EventCallback MoveActiveCardEvent { get; set; }
+
+    private string CssClass { get; set; }
+
+    private string ImagePath { get; set; }
+
+    //If the dragged card can be dropped onto this card,
+    //add a special CSS class.
+    public void HandleDragEnter()
+    {
+        if (DraggedCard.Value == SuitPile.AllowedValue
+            && DraggedCard.Suit == SuitPile.Suit)
+        {
+            CssClass = "solitaire-can-drop";
+        }
+    }
+
+    //Once the dragged card leaves, always reset the CSS class.
+    public void HandleDragLeave()
+    {
+        CssClass = "";
+    }
+
+    public async Task HandleDrop()
+    {
+        CssClass = ""; //Reset the CSS
+
+        //If the dragged card can be dropped here
+        if (DraggedCard.Value == SuitPile.AllowedValue
+            && DraggedCard.Suit == SuitPile.Suit)
+        {
+            //Invoke the callback to move the dragged card.
+            //This callback will be different for stacks and suit piles.
+            await MoveActiveCardEvent.InvokeAsync(SuitPile);
+        }
+    }
+}
+@if (SuitPile.Any())
+    ImagePath = $"images/common/{SuitPile.Last().ImageName}.png";
+else
+    ImagePath = $"images/solitaire/cardDashed{SuitPile.Suit.GetDisplayName()}.png";
+
+<div @ondragstart="DragStartEvent"
+     @ondragend="StateHasChanged"
+     @ondragenter="HandleDragEnter"
+     @ondragleave="HandleDragLeave"
+     @ondrop="HandleDrop"
+     @ondrop:preventDefault="true"
+     @ondrop:stopPropagation="true"
+     ondragover="event.preventDefault();">
+    <img class="solitaire-card @CssClass"
+         src="@ImagePath" />
+</div>
